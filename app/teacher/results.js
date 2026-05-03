@@ -12,7 +12,7 @@ import { COLORS, SIZES, FONTS } from '../../utils/theme';
 import { getQuizById, getQuizResults } from '../../services/quizService';
 import { VIOLATION_LABELS } from '../../utils/constants';
 
-import * as FileSystem from 'expo-file-system';
+import { documentDirectory, cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 export default function ResultsScreen() {
@@ -115,15 +115,15 @@ export default function ResultsScreen() {
     // --- NATIVE (Android/iOS) DOWNLOAD ---
     try {
       // Use cacheDirectory as fallback if documentDirectory is null
-      const baseDir = FileSystem?.documentDirectory || FileSystem?.cacheDirectory;
+      const baseDir = documentDirectory || cacheDirectory;
       if (!baseDir) {
         Alert.alert('Error', 'File system not available on this device.');
         return;
       }
 
       const fileUri = baseDir + fileName;
-      await FileSystem.writeAsStringAsync(fileUri, csv, { 
-        encoding: FileSystem.EncodingType.UTF8 
+      await writeAsStringAsync(fileUri, csv, { 
+        encoding: EncodingType.UTF8 
       });
 
       // Try sharing first
@@ -140,15 +140,18 @@ export default function ResultsScreen() {
       }
 
       // Fallback: try saving to Downloads via SAF (Android)
-      if (Platform.OS === 'android' && FileSystem?.StorageAccessFramework) {
+      if (Platform.OS === 'android') {
         try {
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          const SAF = require('expo-file-system').StorageAccessFramework;
+          const permissions = await SAF.requestDirectoryPermissionsAsync();
           if (permissions.granted) {
-            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            // Can't use named imports for SAF, so require it directly here
+            const SAF = require('expo-file-system').StorageAccessFramework;
+            const newUri = await SAF.createFileAsync(
               permissions.directoryUri, fileName, 'text/csv'
             );
-            await FileSystem.writeAsStringAsync(newUri, csv, {
-              encoding: FileSystem.EncodingType.UTF8,
+            await writeAsStringAsync(newUri, csv, {
+              encoding: EncodingType.UTF8,
             });
             Alert.alert('Success', 'CSV file saved to selected folder.');
             return;
