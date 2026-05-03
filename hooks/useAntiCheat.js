@@ -166,22 +166,9 @@ export function useAntiCheat(isActive, studentName, onAutoSubmit) {
     }
 
     // ========================================
-    // LAYER 10: Keep Screen Awake
+    // LAYER 10: Keep Screen Awake (Disabled - causes web errors)
     // ========================================
-    (async () => {
-      try {
-        await activateKeepAwakeAsync('quiz-active');
-      } catch (e) {
-        console.warn('Keep awake not available:', e.message);
-      }
-    })();
-    cleanups.push(() => {
-      try {
-        deactivateKeepAwake('quiz-active');
-      } catch (e) {
-        // ignore
-      }
-    });
+    // Keep awake logic removed to prevent "wake lock not activated" errors on Web
 
     // ========================================
     // LAYER 11: Hide Navigation Bar (Immersive Mode)
