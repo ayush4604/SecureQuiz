@@ -12,13 +12,8 @@ import { COLORS, SIZES, FONTS } from '../../utils/theme';
 import { getQuizById, getQuizResults } from '../../services/quizService';
 import { VIOLATION_LABELS } from '../../utils/constants';
 
-// Conditionally import native modules (they don't exist on web)
-let FileSystem = null;
-let Sharing = null;
-if (Platform.OS !== 'web') {
-  try { FileSystem = require('expo-file-system'); } catch {}
-  try { Sharing = require('expo-sharing'); } catch {}
-}
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 export default function ResultsScreen() {
   const { quizId } = useLocalSearchParams();
