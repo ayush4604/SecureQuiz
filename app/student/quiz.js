@@ -24,7 +24,7 @@ import { useTimer } from '../../hooks/useTimer';
 import { useApp } from '../../context/AppContext';
 import { getQuizById, updateSession } from '../../services/quizService';
 import { Ionicons } from '@expo/vector-icons';
-import { MAX_VIOLATIONS, QUESTION_TYPES } from '../../utils/constants';
+import { MAX_VIOLATIONS, QUESTION_TYPES, QUIZ_STATUS } from '../../utils/constants';
 import { db, doc, onSnapshot } from '../../services/firebase';
 
 // Error Boundary for catching silent crashes
@@ -123,7 +123,7 @@ export default function QuizScreen() {
     const unsub = onSnapshot(doc(db, 'quizzes', quizId), (doc) => {
       if (doc.exists()) {
         const data = doc.data();
-        if (data.status === 'ended') {
+        if (data.status === QUIZ_STATUS.COMPLETED) {
           console.log('[Watchdog] Teacher ended quiz. Auto-submitting...');
           handleAutoSubmit();
         }

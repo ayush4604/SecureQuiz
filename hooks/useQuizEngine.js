@@ -6,6 +6,7 @@ import { QUESTION_TYPES } from '../utils/constants';
 
 /**
  * Quiz engine hook - manages quiz taking state
+ * Uses shuffleMap for O(1) answer mapping (no indexOf fragility)
  * @param {Object} quiz - Quiz object with questions
  * @returns {Object} - Quiz engine interface
  */
@@ -24,11 +25,6 @@ export function useQuizEngine(quiz) {
   const totalQuestions = questions.length;
   const currentQuestion = questions[currentIndex] || null;
 
-  // Find the original question object to get original indices/answers
-  const getOriginalQuestion = useCallback((qId) => {
-    return quiz.questions.find(q => q.id === qId);
-  }, [quiz.questions]);
-
   // Select an answer for current question
   const selectAnswer = useCallback(
     (shuffledIdx) => {
@@ -40,21 +36,26 @@ export function useQuizEngine(quiz) {
         
         let originalIdx;
         if (type === QUESTION_TYPES.TEXT) {
+          // Text answers are stored as-is (string)
           originalIdx = shuffledIdx;
         } else {
-          // Map shuffled selection back to original index
-          const selectedText = currentQuestion.options[shuffledIdx];
-          const origQ = getOriginalQuestion(qId);
-          originalIdx = origQ.options.indexOf(selectedText);
+          // Use shuffleMap for O(1) reverse lookup — no indexOf fragility
+          const shuffleMap = currentQuestion.shuffleMap;
+          if (shuffleMap) {
+            originalIdx = shuffleMap[shuffledIdx];
+          } else {
+            // Fallback if no shuffleMap (shouldn't happen, but be safe)
+            originalIdx = shuffledIdx;
+          }
         }
 
         let newAnswer;
         if (type === QUESTION_TYPES.MULTI) {
           const current = prev[qId] || [];
           if (current.includes(originalIdx)) {
-            newAnswer = current.filter(i => i !== originalIdx).sort();
+            newAnswer = current.filter(i => i !== originalIdx).sort((a, b) => a - b);
           } else {
-            newAnswer = [...current, originalIdx].sort();
+            newAnswer = [...current, originalIdx].sort((a, b) => a - b);
           }
         } else {
           newAnswer = originalIdx;
@@ -63,7 +64,7 @@ export function useQuizEngine(quiz) {
         return { ...prev, [qId]: newAnswer };
       });
     },
-    [isSubmitted, currentQuestion, getOriginalQuestion]
+    [isSubmitted, currentQuestion]
   );
 
   const calculateScore = useCallback(() => {
@@ -73,11 +74,17 @@ export function useQuizEngine(quiz) {
       const correctAns = q.correctAnswer;
       const type = q.type || QUESTION_TYPES.SINGLE;
 
+      if (studentAns === undefined || studentAns === null) {
+        // Unanswered — skip
+        return;
+      }
+
       if (type === QUESTION_TYPES.SINGLE) {
-        if (studentAns === correctAns) correct++;
+        // Normalize to number for comparison (Firestore may return different types)
+        if (Number(studentAns) === Number(correctAns)) correct++;
       } else if (type === QUESTION_TYPES.MULTI) {
-        const s = Array.isArray(studentAns) ? [...studentAns].sort() : [];
-        const c = Array.isArray(correctAns) ? [...correctAns].sort() : [correctAns];
+        const s = Array.isArray(studentAns) ? [...studentAns].map(Number).sort((a, b) => a - b) : [];
+        const c = Array.isArray(correctAns) ? [...correctAns].map(Number).sort((a, b) => a - b) : [Number(correctAns)];
         if (JSON.stringify(s) === JSON.stringify(c)) correct++;
       } else if (type === QUESTION_TYPES.TEXT) {
         if (studentAns?.toString().trim().toLowerCase() === correctAns?.toString().trim().toLowerCase()) {
@@ -130,17 +137,21 @@ export function useQuizEngine(quiz) {
     
     if (currentQuestion.type === QUESTION_TYPES.TEXT) return origAns;
     
-    const origQ = getOriginalQuestion(currentQuestion.id);
+    const shuffleMap = currentQuestion.shuffleMap;
+    if (!shuffleMap) return origAns;
+
+    // Build reverse map: reverseMap[originalIdx] = shuffledIdx
+    const reverseMap = {};
+    shuffleMap.forEach((origIdx, shuffledIdx) => {
+      reverseMap[origIdx] = shuffledIdx;
+    });
+
     if (Array.isArray(origAns)) {
-      return origAns.map(idx => {
-        const text = origQ.options[idx];
-        return currentQuestion.options.indexOf(text);
-      }).filter(idx => idx !== -1);
+      return origAns.map(idx => reverseMap[idx]).filter(idx => idx !== undefined);
     } else {
-      const text = origQ.options[origAns];
-      return currentQuestion.options.indexOf(text);
+      return reverseMap[origAns] !== undefined ? reverseMap[origAns] : origAns;
     }
-  }, [answers, currentQuestion, getOriginalQuestion]);
+  }, [answers, currentQuestion]);
 
   return {
     currentIndex,

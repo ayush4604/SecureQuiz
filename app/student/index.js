@@ -12,7 +12,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import GradientButton from '../../components/ui/GradientButton';
 import ShieldIcon from '../../components/ui/ShieldIcon';
 import { COLORS, SIZES, FONTS } from '../../utils/theme';
-import { getQuizByCode, addSessionToQuiz } from '../../services/quizService';
+import { getQuizByCode, addSessionToQuiz, getQuizResults } from '../../services/quizService';
 import { generateId } from '../../utils/codeGenerator';
 import { useApp } from '../../context/AppContext';
 
@@ -41,9 +41,10 @@ export default function StudentJoinScreen() {
         return;
       }
 
-      // Check if student with same name already joined
+      // Check if student with same name already joined (query results collection, not stale quiz.sessions)
       const normalizedName = name.trim().toLowerCase();
-      const nameExists = (quiz.sessions || []).some(s => s.name.toLowerCase() === normalizedName);
+      const existingSessions = await getQuizResults(quiz.id);
+      const nameExists = existingSessions.some(s => s.name?.toLowerCase() === normalizedName);
       if (nameExists) {
         Alert.alert('Access Denied', 'A student with this name has already joined this quiz. Each student can only take the quiz once.');
         setLoading(false);

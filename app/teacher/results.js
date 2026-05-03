@@ -11,8 +11,14 @@ import GlassCard from '../../components/ui/GlassCard';
 import { COLORS, SIZES, FONTS } from '../../utils/theme';
 import { getQuizById, getQuizResults } from '../../services/quizService';
 import { VIOLATION_LABELS } from '../../utils/constants';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+
+// Conditionally import native modules (they don't exist on web)
+let FileSystem = null;
+let Sharing = null;
+if (Platform.OS !== 'web') {
+  try { FileSystem = require('expo-file-system'); } catch {}
+  try { Sharing = require('expo-sharing'); } catch {}
+}
 
 export default function ResultsScreen() {
   const { quizId } = useLocalSearchParams();
@@ -31,9 +37,21 @@ export default function ResultsScreen() {
         
         if (quizData) setQuiz(quizData);
         if (resultsData) {
-          const processed = resultsData
-            .filter(s => s.status === 'submitted' || s.status === 'auto_submitted')
-            .sort((a, b) => (b.score || 0) - (a.score || 0));
+          // Show ALL students — sort submitted ones by score, then waiting ones at the end
+          const processed = resultsData.sort((a, b) => {
+            const aSubmitted = a.status === 'submitted' || a.status === 'auto_submitted';
+            const bSubmitted = b.status === 'submitted' || b.status === 'auto_submitted';
+            
+            // Submitted students first
+            if (aSubmitted && !bSubmitted) return -1;
+            if (!aSubmitted && bSubmitted) return 1;
+            
+            // Among submitted, sort by score descending
+            if (aSubmitted && bSubmitted) return (b.score || 0) - (a.score || 0);
+            
+            // Among non-submitted, sort by name
+            return (a.name || '').localeCompare(b.name || '');
+          });
           setSessions(processed);
         }
       } catch (e) {
@@ -51,8 +69,9 @@ export default function ResultsScreen() {
   );
 
   const totalQ = quiz.questions?.length || 0;
-  const avgScore = sessions.length > 0
-    ? Math.round(sessions.reduce((sum, s) => sum + (s.score || 0), 0) / sessions.length)
+  const submittedSessions = sessions.filter(s => s.status === 'submitted' || s.status === 'auto_submitted');
+  const avgScore = submittedSessions.length > 0
+    ? Math.round(submittedSessions.reduce((sum, s) => sum + (s.score || 0), 0) / submittedSessions.length)
     : 0;
 
   const handleDownloadCSV = async () => {
@@ -68,32 +87,52 @@ export default function ResultsScreen() {
     sessions.forEach(s => {
       const pct = totalQ > 0 ? Math.round(((s.score || 0) / totalQ) * 100) : 0;
       const date = s.submittedAt ? new Date(s.submittedAt).toLocaleString() : 'N/A';
-      const status = s.status === 'auto_submitted' ? 'Auto' : 'Manual';
+      const status = s.status === 'auto_submitted' ? 'Auto' : 
+                     s.status === 'submitted' ? 'Manual' : 'Not Submitted';
       
       // Clean names to avoid CSV breaking
-      const cleanName = s.name.replace(/,/g, '');
-      csv += `${cleanName},${s.score || 0},${totalQ},${pct}%,${status},${date}\n`;
+      const cleanName = (s.name || 'Unknown').replace(/,/g, '').replace(/"/g, '');
+      csv += `"${cleanName}",${s.score || 0},${totalQ},${pct}%,${status},"${date}"\n`;
     });
 
-    const fileName = `results_${quiz.title.replace(/\s+/g, '_')}.csv`;
+    const fileName = `results_${(quiz.title || 'quiz').replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
 
-    // Create and download file (Web compatible)
+    // --- WEB DOWNLOAD ---
     if (Platform.OS === 'web') {
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.setAttribute('hidden', '');
-      a.setAttribute('href', url);
-      a.setAttribute('download', fileName);
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } else {
-      // Native Android/iOS implementation
       try {
-        const fileUri = FileSystem.documentDirectory + fileName;
-        await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
-        
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        a.setAttribute('download', fileName);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('Web CSV download error:', err);
+        Alert.alert('Error', 'Failed to download CSV.');
+      }
+      return;
+    }
+
+    // --- NATIVE (Android/iOS) DOWNLOAD ---
+    try {
+      // Use cacheDirectory as fallback if documentDirectory is null
+      const baseDir = FileSystem?.documentDirectory || FileSystem?.cacheDirectory;
+      if (!baseDir) {
+        Alert.alert('Error', 'File system not available on this device.');
+        return;
+      }
+
+      const fileUri = baseDir + fileName;
+      await FileSystem.writeAsStringAsync(fileUri, csv, { 
+        encoding: FileSystem.EncodingType.UTF8 
+      });
+
+      // Try sharing first
+      if (Sharing) {
         const isAvailable = await Sharing.isAvailableAsync();
         if (isAvailable) {
           await Sharing.shareAsync(fileUri, {
@@ -101,13 +140,33 @@ export default function ResultsScreen() {
             dialogTitle: 'Share Quiz Results',
             UTI: 'public.comma-separated-values-text',
           });
-        } else {
-          Alert.alert('Success', `CSV saved to ${fileUri}`);
+          return;
         }
-      } catch (err) {
-        console.error('Sharing error:', err);
-        Alert.alert('Error', 'Failed to share CSV file.');
       }
+
+      // Fallback: try saving to Downloads via SAF (Android)
+      if (Platform.OS === 'android' && FileSystem?.StorageAccessFramework) {
+        try {
+          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          if (permissions.granted) {
+            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(
+              permissions.directoryUri, fileName, 'text/csv'
+            );
+            await FileSystem.writeAsStringAsync(newUri, csv, {
+              encoding: FileSystem.EncodingType.UTF8,
+            });
+            Alert.alert('Success', 'CSV file saved to selected folder.');
+            return;
+          }
+        } catch (safErr) {
+          console.warn('SAF fallback failed:', safErr);
+        }
+      }
+
+      Alert.alert('Saved', `CSV saved to: ${fileUri}`);
+    } catch (err) {
+      console.error('Native CSV error:', err);
+      Alert.alert('Error', 'Failed to create CSV file. Please try again.');
     }
   };
 
@@ -126,18 +185,33 @@ export default function ResultsScreen() {
           if (studentAns === undefined) {
             studentAns = studentAnswers[String(idx)];
           }
+
+          // Normalize types for comparison
+          const correctAns = q.correctAnswer;
+          let isCorrect = false;
           
-          const isCorrect = Array.isArray(q.correctAnswer) 
-            ? JSON.stringify([...(q.correctAnswer || [])].sort()) === JSON.stringify([...(studentAns || [])].sort())
-            : q.correctAnswer === studentAns;
+          if (studentAns !== undefined && studentAns !== null) {
+            if (Array.isArray(correctAns)) {
+              // Multi-answer: compare sorted arrays with Number normalization
+              const sArr = Array.isArray(studentAns) ? [...studentAns].map(Number).sort((a, b) => a - b) : [];
+              const cArr = [...correctAns].map(Number).sort((a, b) => a - b);
+              isCorrect = JSON.stringify(sArr) === JSON.stringify(cArr);
+            } else if (q.type === 'text') {
+              // Text comparison: case-insensitive trim
+              isCorrect = studentAns?.toString().trim().toLowerCase() === correctAns?.toString().trim().toLowerCase();
+            } else {
+              // Single answer: normalize to number
+              isCorrect = Number(studentAns) === Number(correctAns);
+            }
+          }
 
           const getDisplayValue = (val) => {
             if (val === undefined || val === null) return 'Unanswered';
             if (q.type === 'text') return val || 'N/A';
             if (Array.isArray(val)) {
-              return val.map(i => q.options[i]).filter(Boolean).join(', ') || 'None';
+              return val.map(i => q.options[Number(i)]).filter(Boolean).join(', ') || 'None';
             }
-            if (typeof val === 'number' && q.options[val]) return q.options[val];
+            if (q.options && q.options[Number(val)] !== undefined) return q.options[Number(val)];
             return String(val);
           };
 
@@ -159,7 +233,7 @@ export default function ResultsScreen() {
                   <View style={s.ansBlock}>
                     <Text style={s.ansLabel}>Correct:</Text>
                     <Text style={[s.ansVal, { color: COLORS.success }]}>
-                      {getDisplayValue(q.correctAnswer)}
+                      {getDisplayValue(correctAns)}
                     </Text>
                   </View>
                 )}
@@ -191,6 +265,10 @@ export default function ResultsScreen() {
         <View style={s.statsRow}>
           <GlassCard style={s.statCard}>
             <Text style={s.statNum}>{sessions.length}</Text>
+            <Text style={s.statLabel}>Total</Text>
+          </GlassCard>
+          <GlassCard style={s.statCard}>
+            <Text style={s.statNum}>{submittedSessions.length}</Text>
             <Text style={s.statLabel}>Submitted</Text>
           </GlassCard>
           <GlassCard style={s.statCard}>
@@ -204,7 +282,8 @@ export default function ResultsScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={s.list}
           renderItem={({ item, index }) => {
-            const pct = totalQ > 0 ? Math.round(((item.score || 0) / totalQ) * 100) : 0;
+            const isSubmitted = item.status === 'submitted' || item.status === 'auto_submitted';
+            const pct = (totalQ > 0 && isSubmitted) ? Math.round(((item.score || 0) / totalQ) * 100) : 0;
             const violations = item.violations || [];
             const isExpanded = expandedStudent === item.id;
 
@@ -215,7 +294,7 @@ export default function ResultsScreen() {
               >
                 <GlassCard
                   style={[s.studentCard, isExpanded && s.expandedCard]}
-                  variant={violations.length > 0 ? 'danger' : 'default'}
+                  variant={violations.length > 0 ? 'danger' : !isSubmitted ? 'light' : 'default'}
                 >
                   <View style={s.row}>
                     <Text style={s.rank}>#{index + 1}</Text>
@@ -227,15 +306,23 @@ export default function ResultsScreen() {
                         )}
                       </View>
                       <Text style={s.sub}>
-                        {item.status === 'auto_submitted' ? 'Auto-submitted' : 'Submitted'}
+                        {item.status === 'auto_submitted' ? 'Auto-submitted' : 
+                         item.status === 'submitted' ? 'Submitted' : 
+                         '⏳ Did not submit'}
                       </Text>
                     </View>
-                    <View style={s.scoreBox}>
-                      <Text style={[s.score, {
-                        color: pct >= 70 ? COLORS.success : pct >= 40 ? COLORS.warning : COLORS.danger
-                      }]}>{item.score || 0}/{totalQ}</Text>
-                      <Text style={s.pct}>{pct}%</Text>
-                    </View>
+                    {isSubmitted ? (
+                      <View style={s.scoreBox}>
+                        <Text style={[s.score, {
+                          color: pct >= 70 ? COLORS.success : pct >= 40 ? COLORS.warning : COLORS.danger
+                        }]}>{item.score || 0}/{totalQ}</Text>
+                        <Text style={s.pct}>{pct}%</Text>
+                      </View>
+                    ) : (
+                      <View style={s.scoreBox}>
+                        <Text style={[s.score, { color: COLORS.textMuted }]}>—</Text>
+                      </View>
+                    )}
                     <Ionicons 
                       name={isExpanded ? "chevron-up" : "chevron-down"} 
                       size={18} 
@@ -260,7 +347,7 @@ export default function ResultsScreen() {
                         </View>
                       )}
                       
-                      {renderAnswerDetails(item)}
+                      {isSubmitted && renderAnswerDetails(item)}
                     </View>
                   )}
                 </GlassCard>

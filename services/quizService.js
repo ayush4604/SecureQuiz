@@ -4,7 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateQuizCode, generateId } from '../utils/codeGenerator';
 import { STORAGE_KEYS, QUIZ_STATUS } from '../utils/constants';
-import { isFirebaseConfigured, db, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, serverTimestamp } from './firebase';
+import { isFirebaseConfigured, db, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, serverTimestamp, onSnapshot } from './firebase';
 
 // ============ LOCAL STORAGE OPERATIONS (Fallback) ============
 
@@ -223,17 +223,31 @@ export async function addSessionToQuiz(quizId, session) {
 
 /**
  * Update a specific session/result
+ * Uses setDoc with merge to avoid race conditions — creates doc if it doesn't exist
  */
 export async function updateSession(quizId, sessionId, sessionData) {
   if (isFirebaseConfigured()) {
+    const payload = {
+      ...sessionData,
+      quizId,
+      updatedAt: serverTimestamp(),
+    };
+
+    // Attempt 1
     try {
-      await updateDoc(doc(db, 'results', sessionId), {
-        ...sessionData,
-        updatedAt: serverTimestamp(),
-      });
+      await setDoc(doc(db, 'results', sessionId), payload, { merge: true });
       return;
     } catch (e) {
-      console.warn('Firebase result update failed:', e.message);
+      console.warn('Firebase result update attempt 1 failed:', e.message);
+    }
+
+    // Retry once after 500ms for extreme-load scenarios
+    try {
+      await new Promise(r => setTimeout(r, 500));
+      await setDoc(doc(db, 'results', sessionId), payload, { merge: true });
+      return;
+    } catch (e) {
+      console.warn('Firebase result update attempt 2 failed:', e.message);
     }
   }
 
@@ -248,7 +262,7 @@ export async function updateSession(quizId, sessionId, sessionData) {
 }
 
 /**
- * Get all results for a specific quiz
+ * Get all results for a specific quiz (one-time read)
  */
 export async function getQuizResults(quizId) {
   if (isFirebaseConfigured()) {
@@ -264,4 +278,81 @@ export async function getQuizResults(quizId) {
   const quizzes = await getLocalQuizzes();
   const quiz = quizzes.find(q => q.id === quizId);
   return quiz?.sessions || [];
+}
+
+// ============ REAL-TIME SUBSCRIPTIONS ============
+
+/**
+ * Subscribe to real-time updates for a single quiz document
+ * @param {string} quizId
+ * @param {Function} callback - receives quiz data object
+ * @returns {Function} unsubscribe function
+ */
+export function subscribeToQuiz(quizId, callback) {
+  if (!isFirebaseConfigured()) {
+    // Fallback: poll local storage
+    const iv = setInterval(async () => {
+      const data = await getQuizById(quizId);
+      if (data) callback(data);
+    }, 2000);
+    return () => clearInterval(iv);
+  }
+
+  return onSnapshot(doc(db, 'quizzes', quizId), (snap) => {
+    if (snap.exists()) {
+      callback({ id: snap.id, ...snap.data() });
+    }
+  }, (error) => {
+    console.warn('Quiz subscription error:', error.message);
+  });
+}
+
+/**
+ * Subscribe to real-time updates for all results/sessions of a quiz
+ * @param {string} quizId
+ * @param {Function} callback - receives array of session objects
+ * @returns {Function} unsubscribe function
+ */
+export function subscribeToQuizResults(quizId, callback) {
+  if (!isFirebaseConfigured()) {
+    // Fallback: poll local storage
+    const iv = setInterval(async () => {
+      const results = await getQuizResults(quizId);
+      callback(results);
+    }, 2000);
+    return () => clearInterval(iv);
+  }
+
+  const q = query(collection(db, 'results'), where('quizId', '==', quizId));
+  return onSnapshot(q, (snapshot) => {
+    const results = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    callback(results);
+  }, (error) => {
+    console.warn('Results subscription error:', error.message);
+  });
+}
+
+/**
+ * Subscribe to all quizzes for the current teacher (real-time)
+ * @param {Function} callback - receives array of quiz objects
+ * @returns {Function} unsubscribe function
+ */
+export async function subscribeToTeacherQuizzes(callback) {
+  const teacherId = await getDeviceTeacherId();
+
+  if (!isFirebaseConfigured()) {
+    const iv = setInterval(async () => {
+      const data = await getAllQuizzes();
+      callback(data);
+    }, 3000);
+    return () => clearInterval(iv);
+  }
+
+  const q = query(collection(db, 'quizzes'), where('teacherId', '==', teacherId));
+  return onSnapshot(q, (snapshot) => {
+    const quizzes = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    callback(quizzes);
+  }, (error) => {
+    console.warn('Teacher quizzes subscription error:', error.message);
+  });
 }

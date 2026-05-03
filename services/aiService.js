@@ -4,8 +4,7 @@
 import { QUESTION_TYPES } from '../utils/constants';
 
 // Use the secure Environment Variable (EXPO_PUBLIC_ prefix for client access)
-// Fallback to hardcoded key for APK/Cloud builds if process.env is missing
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || "AIzaSyDpRsdZgU04mODctc69bWMjtQmZb8nyfbk"; 
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || "";
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 
 /**

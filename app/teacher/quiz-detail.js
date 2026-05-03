@@ -1,6 +1,6 @@
-// Quiz Detail - View quiz, start it, see joined students
+// Quiz Detail - View quiz, start it, see joined students (REAL-TIME)
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
   SafeAreaView, Alert, Share,
@@ -11,33 +11,43 @@ import AnimatedBackground from '../../components/ui/AnimatedBackground';
 import GlassCard from '../../components/ui/GlassCard';
 import GradientButton from '../../components/ui/GradientButton';
 import { COLORS, SIZES, FONTS } from '../../utils/theme';
-import { getQuizById, updateQuizStatus } from '../../services/quizService';
+import { updateQuizStatus, subscribeToQuiz, subscribeToQuizResults } from '../../services/quizService';
 import { QUIZ_STATUS } from '../../utils/constants';
 
 export default function QuizDetailScreen() {
   const { quizId } = useLocalSearchParams();
   const [quiz, setQuiz] = useState(null);
+  const [sessions, setSessions] = useState([]);
 
-  const loadQuiz = useCallback(async () => {
-    const data = await getQuizById(quizId);
-    if (data) setQuiz(data);
+  // Real-time listener for quiz document (status, title, etc.)
+  useEffect(() => {
+    if (!quizId) return;
+
+    const unsub = subscribeToQuiz(quizId, (quizData) => {
+      setQuiz(quizData);
+    });
+
+    return () => { if (typeof unsub === 'function') unsub(); };
   }, [quizId]);
 
-  useEffect(() => { loadQuiz(); }, [loadQuiz]);
+  // Real-time listener for all student sessions — instant updates
   useEffect(() => {
-    const iv = setInterval(loadQuiz, 3000);
-    return () => clearInterval(iv);
-  }, [loadQuiz]);
+    if (!quizId) return;
+
+    const unsub = subscribeToQuizResults(quizId, (results) => {
+      setSessions(results);
+    });
+
+    return () => { if (typeof unsub === 'function') unsub(); };
+  }, [quizId]);
 
   const handleStart = async () => {
     await updateQuizStatus(quizId, QUIZ_STATUS.ACTIVE);
-    loadQuiz();
     Alert.alert('Quiz Started!', 'Students can now take the quiz.');
   };
 
   const handleEnd = async () => {
     await updateQuizStatus(quizId, QUIZ_STATUS.COMPLETED);
-    loadQuiz();
   };
 
   const handleShare = async () => {
@@ -58,8 +68,6 @@ export default function QuizDetailScreen() {
       </SafeAreaView>
     </AnimatedBackground>
   );
-
-  const sessions = quiz.sessions || [];
 
   return (
     <AnimatedBackground>
@@ -112,10 +120,10 @@ export default function QuizDetailScreen() {
                   <Ionicons name="person-circle" size={28} color={COLORS.textMuted} />
                   <Text style={s.studentName}>{item.name}</Text>
                   <Text style={[s.studentStatus, {
-                    color: item.status === 'submitted' ? COLORS.success :
+                    color: (item.status === 'submitted' || item.status === 'auto_submitted') ? COLORS.success :
                       item.status === 'active' ? COLORS.warning : COLORS.textMuted,
                   }]}>
-                    {item.status === 'submitted' ? `✓ ${item.score || 0}/${quiz.questions?.length}` :
+                    {(item.status === 'submitted' || item.status === 'auto_submitted') ? `✓ ${item.score || 0}/${quiz.questions?.length}` :
                       item.status === 'active' ? '● Taking quiz' : '◌ Waiting'}
                   </Text>
                 </View>

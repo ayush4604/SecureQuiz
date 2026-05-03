@@ -17,18 +17,33 @@ import AnimatedBackground from '../../components/ui/AnimatedBackground';
 import GlassCard from '../../components/ui/GlassCard';
 import GradientButton from '../../components/ui/GradientButton';
 import { COLORS, SIZES, FONTS, SHADOWS } from '../../utils/theme';
-import { getAllQuizzes, deleteQuiz } from '../../services/quizService';
+import { getAllQuizzes, deleteQuiz, subscribeToTeacherQuizzes, getQuizResults } from '../../services/quizService';
 import { QUIZ_STATUS } from '../../utils/constants';
 
 export default function TeacherDashboard() {
   const [quizzes, setQuizzes] = useState([]);
+  const [studentCounts, setStudentCounts] = useState({});
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadQuizzes = useCallback(async () => {
     try {
       const data = await getAllQuizzes();
-      setQuizzes(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      setQuizzes(data.sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+        return dateB - dateA;
+      }));
+      
+      // Fetch real student counts from the results collection
+      const counts = {};
+      await Promise.all(data.map(async (q) => {
+        try {
+          const results = await getQuizResults(q.id);
+          counts[q.id] = results.length;
+        } catch { counts[q.id] = 0; }
+      }));
+      setStudentCounts(counts);
     } catch (e) {
       console.warn('Failed to load quizzes:', e);
     } finally {
@@ -37,14 +52,35 @@ export default function TeacherDashboard() {
     }
   }, []);
 
+  // Real-time subscription to teacher quizzes
+  useEffect(() => {
+    let unsub;
+    (async () => {
+      unsub = await subscribeToTeacherQuizzes((data) => {
+        setQuizzes(data.sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+          return dateB - dateA;
+        }));
+        setLoading(false);
+        setRefreshing(false);
+        
+        // Update student counts from results collection
+        Promise.all(data.map(async (q) => {
+          try {
+            const results = await getQuizResults(q.id);
+            setStudentCounts(prev => ({ ...prev, [q.id]: results.length }));
+          } catch { /* ignore */ }
+        }));
+      });
+    })();
+
+    return () => { if (typeof unsub === 'function') unsub(); };
+  }, []);
+
+  // Also do initial load as fallback
   useEffect(() => {
     loadQuizzes();
-  }, [loadQuizzes]);
-
-  // Refresh when screen is focused
-  useEffect(() => {
-    const interval = setInterval(loadQuizzes, 5000); // Poll every 5s
-    return () => clearInterval(interval);
   }, [loadQuizzes]);
 
   const onRefresh = () => {
@@ -124,7 +160,7 @@ export default function TeacherDashboard() {
           <View style={styles.footerLeft}>
             <Ionicons name="people" size={14} color={COLORS.textMuted} />
             <Text style={styles.footerText}>
-              {item.sessions?.length || 0} students
+              {studentCounts[item.id] || item.sessions?.length || 0} students
             </Text>
           </View>
           <TouchableOpacity

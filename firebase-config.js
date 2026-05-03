@@ -1,16 +1,15 @@
 // Firebase Configuration
-// ⚠️ REPLACE THESE VALUES with your Firebase project credentials
-// Follow FIREBASE_SETUP.md for step-by-step instructions
+// Reads from environment variables (.env file)
+// ⚠️ Copy .env.example to .env and fill in your Firebase credentials
 
-// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyBV1uyqwpiQ1NgIF3ixjKlq-g8Jn2dBcwo",
-  authDomain: "quiz-cc09b.firebaseapp.com",
-  projectId: "quiz-cc09b",
-  storageBucket: "quiz-cc09b.firebasestorage.app",
-  messagingSenderId: "793768176102",
-  appId: "1:793768176102:web:e68b3be6acddff90ebce27",
-  measurementId: "G-ECYSTWHF8P"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "YOUR_API_KEY_HERE",
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "YOUR_PROJECT.firebaseapp.com",
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "YOUR_PROJECT_ID",
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "YOUR_PROJECT.firebasestorage.app",
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "000000000000",
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "1:000000000000:web:0000000000000000",
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID || "G-XXXXXXXXXX"
 };
 
 export default firebaseConfig;
