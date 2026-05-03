@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   Linking,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -127,7 +128,7 @@ export default function LandingScreen() {
                 title="Download Android App"
                 variant="outline"
                 style={styles.downloadBtn}
-                onPress={() => Linking.openURL('https://expo.dev/artifacts/eas/vwp7c1gDMUNrZnMpak1H6A.apk')}
+                onPress={() => Linking.openURL('https://expo.dev/artifacts/eas/37PmoAxQ2B2QBmwCkCK9Y8.apk')}
               />
             </View>
           )}

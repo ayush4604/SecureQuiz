@@ -1,11 +1,11 @@
 // Create Quiz Screen - Teacher creates a new quiz
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   ScrollView, SafeAreaView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AnimatedBackground from '../../components/ui/AnimatedBackground';
 import GlassCard from '../../components/ui/GlassCard';
@@ -22,9 +22,23 @@ const EMPTY_Q = {
 };
 
 export default function CreateQuizScreen() {
-  const [title, setTitle] = useState('');
+  const { initialTitle, initialQuestions } = useLocalSearchParams();
+  const [title, setTitle] = useState(initialTitle || '');
   const [timeLimit, setTimeLimit] = useState(DEFAULT_TIME_LIMIT.toString());
   const [questions, setQuestions] = useState([{ ...EMPTY_Q, options: ['', '', '', ''] }]);
+
+  // Load AI generated questions if present
+  useEffect(() => {
+    if (initialQuestions) {
+      try {
+        const parsed = typeof initialQuestions === 'string' ? JSON.parse(initialQuestions) : initialQuestions;
+        setQuestions(parsed);
+      } catch (e) {
+        console.error('Failed to parse AI questions:', e);
+      }
+    }
+  }, [initialQuestions]);
+
   const [loading, setLoading] = useState(false);
   const [expandedQ, setExpandedQ] = useState(0);
 
@@ -94,11 +108,15 @@ export default function CreateQuizScreen() {
     return true;
   };
 
+  const isSubmitting = React.useRef(false);
+
   const handleCreate = async () => {
-    if (loading) return; // Prevent multiple clicks
+    if (loading || isSubmitting.current) return;
     if (!validate()) return;
     
     setLoading(true);
+    isSubmitting.current = true;
+
     try {
       const quiz = await createQuiz({
         title: title.trim(),
@@ -111,13 +129,24 @@ export default function CreateQuizScreen() {
           correctAnswer: q.correctAnswer,
         })),
       });
-      Alert.alert('Quiz Created!', `Quiz Code: ${quiz.code}\n\nShare this code with students.`,
-        [{ text: 'Go to Dashboard', onPress: () => router.back() }]);
+      
+      // Reset states immediately to prevent hang
+      setLoading(false);
+      isSubmitting.current = false;
+
+      if (Platform.OS === 'web') {
+        // On web, Alert.alert can be unreliable or non-blocking
+        router.replace('/teacher');
+      } else {
+        Alert.alert('Success!', `Quiz Created!\nCode: ${quiz.code}`, [
+          { text: 'Done', onPress: () => router.replace('/teacher') }
+        ]);
+      }
     } catch (e) {
-      Alert.alert('Error', 'Failed to create quiz.');
-    } finally { 
-      // Keep loading true for a bit to prevent accidental double-alerts
-      setTimeout(() => setLoading(false), 2000); 
+      console.error(e);
+      setLoading(false);
+      isSubmitting.current = false;
+      Alert.alert('Error', 'Failed to create quiz. Please check your connection.');
     }
   };
 

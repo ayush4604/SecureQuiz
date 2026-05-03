@@ -163,6 +163,29 @@ export default function TeacherDashboard() {
           <View style={{ width: 40 }} />
         </View>
 
+        {/* Actions Section */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity 
+            style={styles.actionCard} 
+            onPress={() => router.push('/teacher/create-quiz')}
+          >
+            <View style={[styles.iconBox, { backgroundColor: COLORS.primary + '20' }]}>
+              <Ionicons name="add" size={28} color={COLORS.primary} />
+            </View>
+            <Text style={styles.actionLabel}>Manual Quiz</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionCard} 
+            onPress={() => router.push('/teacher/ai-generate')}
+          >
+            <View style={[styles.iconBox, { backgroundColor: COLORS.secondary + '20' }]}>
+              <Ionicons name="flash" size={28} color={COLORS.secondary} />
+            </View>
+            <Text style={styles.actionLabel}>AI Generator</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Quiz List */}
         <FlatList
           data={quizzes}
@@ -224,6 +247,40 @@ const styles = StyleSheet.create({
     fontSize: SIZES.sm,
     ...FONTS.medium,
     textAlign: 'center',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    paddingHorizontal: SIZES.space20,
+    gap: SIZES.space12,
+    marginBottom: SIZES.space24,
+  },
+  actionCard: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    padding: SIZES.space20,
+    borderRadius: SIZES.radius16,
+    borderWidth: 1,
+    borderColor: COLORS.glassBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    elevation: 4,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  iconBox: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionLabel: {
+    color: COLORS.textPrimary,
+    fontSize: SIZES.sm,
+    ...FONTS.semiBold,
   },
   list: {
     paddingHorizontal: SIZES.space20,

@@ -14,6 +14,29 @@ import { getQuizById } from '../../services/quizService';
 import { useApp } from '../../context/AppContext';
 import { QUIZ_STATUS } from '../../utils/constants';
 
+// Error Boundary for catching silent crashes
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#0A0E1A', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <Text style={{ color: '#FF4444', fontSize: 18, fontWeight: 'bold' }}>Lobby Crash Detected</Text>
+          <Text style={{ color: '#FFFFFF', marginTop: 10, textAlign: 'center' }}>{this.state.error?.message}</Text>
+          <Text style={{ color: '#AAAAAA', marginTop: 20 }}>Please refresh the page.</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function LobbyScreen() {
   const { quizId, sessionId } = useLocalSearchParams();
   const { state } = useApp();
@@ -23,10 +46,11 @@ export default function LobbyScreen() {
 
   // Redirect if missing data
   useEffect(() => {
-    if (!quizId || !state.studentName) {
+    if (!quizId) {
+      console.warn('[Lobby] Missing quizId, redirecting...');
       router.replace('/');
     }
-  }, [quizId, state.studentName]);
+  }, [quizId]);
 
   // Animated dots
   useEffect(() => {
@@ -38,78 +62,91 @@ export default function LobbyScreen() {
 
   // Poll for quiz status
   const checkStatus = useCallback(async () => {
-    const data = await getQuizById(quizId);
-    if (data) {
-      setQuiz(data);
-      if (data.status === QUIZ_STATUS.ACTIVE) {
-        router.replace({
-          pathname: '/student/quiz',
-          params: { quizId, sessionId },
-        });
+    if (!quizId) return;
+    try {
+      const data = await getQuizById(quizId);
+      if (data) {
+        setQuiz(data);
+        if (data.status === QUIZ_STATUS.ACTIVE) {
+          router.replace({
+            pathname: '/student/quiz',
+            params: { quizId, sessionId },
+          });
+        }
       }
+    } catch (e) {
+      console.error('[Lobby] Status Check Error:', e);
+    } finally {
+      setLoading(false);
     }
   }, [quizId, sessionId]);
 
   useEffect(() => {
     checkStatus();
-    const iv = setInterval(checkStatus, 2000);
+    const iv = setInterval(checkStatus, 3000); // 3s polling is enough
     return () => clearInterval(iv);
   }, [checkStatus]);
 
   return (
-    <AnimatedBackground>
-      <SafeAreaView style={s.safe}>
-        <View style={s.container}>
-          <ShieldIcon size={60} color={COLORS.secondary} />
+    <ErrorBoundary>
+      <AnimatedBackground>
+        <SafeAreaView style={s.safe}>
+          <View style={s.container}>
+            <ShieldIcon size={60} color={COLORS.secondary} />
 
-          <Text style={s.title}>You're In!</Text>
-          <Text style={s.name}>{state.studentName}</Text>
+            <Text style={s.title}>You're In!</Text>
+            <Text style={s.name}>{state.studentName || 'Student'}</Text>
 
-          {quiz && (
-            <GlassCard style={s.quizCard}>
-              <Text style={s.quizTitle}>{quiz.title}</Text>
-              <View style={s.infoRow}>
-                <View style={s.infoBadge}>
-                  <Ionicons name="help-circle" size={14} color={COLORS.primary} />
-                  <Text style={s.infoText}>{quiz.questions?.length} questions</Text>
+            {quiz ? (
+              <GlassCard style={s.quizCard}>
+                <Text style={s.quizTitle}>{quiz.title}</Text>
+                <View style={s.infoRow}>
+                  <View style={s.infoBadge}>
+                    <Ionicons name="help-circle" size={14} color={COLORS.primary} />
+                    <Text style={s.infoText}>{quiz.questions?.length || 0} questions</Text>
+                  </View>
+                  <View style={s.infoBadge}>
+                    <Ionicons name="time" size={14} color={COLORS.primary} />
+                    <Text style={s.infoText}>{quiz.timeLimit || 0} min</Text>
+                  </View>
                 </View>
-                <View style={s.infoBadge}>
-                  <Ionicons name="time" size={14} color={COLORS.primary} />
-                  <Text style={s.infoText}>{quiz.timeLimit} min</Text>
-                </View>
+              </GlassCard>
+            ) : (
+              <View style={s.quizCard}>
+                <Text style={s.loadingText}>Loading quiz info...</Text>
+              </View>
+            )}
+
+            <View style={s.waitingBox}>
+              <Text style={s.waitingText}>
+                Waiting for teacher to start{dots}
+              </Text>
+            </View>
+
+            {/* Security info */}
+            <GlassCard style={s.secCard} variant="light">
+              <Text style={s.secTitle}>🔒 Security Active</Text>
+              <View style={s.secRow}>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                <Text style={s.secText}>Screenshots will be blocked</Text>
+              </View>
+              <View style={s.secRow}>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                <Text style={s.secText}>Screen recording will be blocked</Text>
+              </View>
+              <View style={s.secRow}>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                <Text style={s.secText}>Tab switching will be detected</Text>
+              </View>
+              <View style={s.secRow}>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                <Text style={s.secText}>3 violations = auto-submit</Text>
               </View>
             </GlassCard>
-          )}
-
-          <View style={s.waitingBox}>
-            <Text style={s.waitingText}>
-              Waiting for teacher to start{dots}
-            </Text>
           </View>
-
-          {/* Security info */}
-          <GlassCard style={s.secCard} variant="light">
-            <Text style={s.secTitle}>🔒 Security Active</Text>
-            <View style={s.secRow}>
-              <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
-              <Text style={s.secText}>Screenshots will be blocked</Text>
-            </View>
-            <View style={s.secRow}>
-              <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
-              <Text style={s.secText}>Screen recording will be blocked</Text>
-            </View>
-            <View style={s.secRow}>
-              <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
-              <Text style={s.secText}>Tab switching will be detected</Text>
-            </View>
-            <View style={s.secRow}>
-              <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
-              <Text style={s.secText}>3 violations = auto-submit</Text>
-            </View>
-          </GlassCard>
-        </View>
-      </SafeAreaView>
-    </AnimatedBackground>
+        </SafeAreaView>
+      </AnimatedBackground>
+    </ErrorBoundary>
   );
 }
 
@@ -142,6 +179,9 @@ const s = StyleSheet.create({
   },
   waitingText: {
     color: COLORS.textMuted, fontSize: SIZES.lg, ...FONTS.medium,
+  },
+  loadingText: {
+    color: COLORS.textMuted, fontSize: SIZES.sm, ...FONTS.regular,
   },
   secCard: {
     width: '100%', marginTop: SIZES.space24,

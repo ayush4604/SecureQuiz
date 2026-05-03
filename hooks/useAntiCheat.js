@@ -40,9 +40,19 @@ export function useAntiCheat(isActive, studentName, onAutoSubmit) {
     onAutoSubmitRef.current = onAutoSubmit;
   }, [onAutoSubmit]);
 
+  const lastViolationTimeRef = useRef(0);
+
   // Log a violation
   const logViolation = useCallback((type, message) => {
     if (!isActiveRef.current) return;
+
+    // Prevent double-logging (e.g. active -> inactive -> background firing twice)
+    // 2 second cooldown between same-type violations
+    const now = Date.now();
+    if (now - lastViolationTimeRef.current < 2000) {
+      return;
+    }
+    lastViolationTimeRef.current = now;
 
     const violation = {
       type,
@@ -280,45 +290,40 @@ export function useAntiCheat(isActive, studentName, onAutoSubmit) {
 
     // ========================================
     // LAYER 13: Native Android Screen Pinning (Lock Task Mode)
+    // Only works in production APK builds, NOT in Expo Go
     // ========================================
     if (Platform.OS === 'android') {
-      let ScreenPinning;
       try {
-        ScreenPinning = require('../modules/expo-screen-pinning');
-      } catch (e) {
-        console.warn('Native module ScreenPinning not found');
-        return;
-      }
-      
-      const checkPinning = () => {
-        try {
-          const pinned = ScreenPinning.isPinned();
-          setIsLockedDown(pinned);
-          if (!pinned && isActiveRef.current) {
-            ScreenPinning.start(); // Try to start again
+        const ScreenPinning = require('../modules/expo-screen-pinning');
+        
+        const checkPinning = () => {
+          try {
+            const pinned = ScreenPinning.isPinned();
+            setIsLockedDown(pinned);
+            if (!pinned && isActiveRef.current) {
+              ScreenPinning.start();
+            }
+          } catch (e) {
+            // ignore
           }
-        } catch (e) {
-          // ignore
-        }
-      };
+        };
 
-      try {
         ScreenPinning.start();
-        // Initial check after a short delay to allow OS dialog to show
         setTimeout(checkPinning, 2000);
-      } catch (e) {
-        console.warn('Screen pinning not available:', e);
-      }
 
-      const pinInterval = setInterval(checkPinning, 2000);
-      cleanups.push(() => {
-        clearInterval(pinInterval);
-        try {
-          ScreenPinning.stop();
-        } catch (e) {
-          // ignore
-        }
-      });
+        const pinInterval = setInterval(checkPinning, 2000);
+        cleanups.push(() => {
+          clearInterval(pinInterval);
+          try {
+            ScreenPinning.stop();
+          } catch (e) {
+            // ignore
+          }
+        });
+      } catch (e) {
+        // Screen pinning not available (Expo Go or unsupported device)
+        console.warn('Screen pinning skipped (not available in Expo Go):', e.message);
+      }
     }
 
     // ========================================

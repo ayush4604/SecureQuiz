@@ -25,6 +25,7 @@ import { useApp } from '../../context/AppContext';
 import { getQuizById, updateSession } from '../../services/quizService';
 import { Ionicons } from '@expo/vector-icons';
 import { MAX_VIOLATIONS, QUESTION_TYPES } from '../../utils/constants';
+import { db, doc, onSnapshot } from '../../services/firebase';
 
 // Error Boundary for catching silent crashes
 class ErrorBoundary extends React.Component {
@@ -52,6 +53,7 @@ class ErrorBoundary extends React.Component {
 export default function QuizScreen() {
   const { quizId, sessionId } = useLocalSearchParams();
   const { state } = useApp();
+  const [quiz, setQuiz] = useState(null);
   const [quizActive, setQuizActive] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -72,26 +74,7 @@ export default function QuizScreen() {
   }, [quizId]);
 
   // Quiz engine
-  const engine = useQuizEngine(quiz);
-
-  // Watchdog Listener - Detect when teacher ends quiz
-  useEffect(() => {
-    if (!quizId || !quizActive) return;
-
-    // Direct listener to the quiz status
-    const { db, doc, onSnapshot } = require('../../services/firebase');
-    const unsub = onSnapshot(doc(db, 'quizzes', quizId), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
-        if (data.status === 'ended') {
-          console.log('[Watchdog] Teacher ended quiz. Auto-submitting...');
-          handleAutoSubmit();
-        }
-      }
-    });
-
-    return () => unsub();
-  }, [quizId, quizActive, handleAutoSubmit]);
+  const engine = useQuizEngine(quiz || { questions: [] });
 
   // Handle submission
   const handleSubmit = useCallback(async (isAutoSubmit = false) => {
@@ -131,6 +114,24 @@ export default function QuizScreen() {
   }, [submitted, engine, quizId, sessionId]);
 
   const handleAutoSubmit = useCallback(() => handleSubmit(true), [handleSubmit]);
+
+  // Watchdog Listener - Detect when teacher ends quiz
+  useEffect(() => {
+    if (!quizId || !quizActive) return;
+
+    // Direct listener to the quiz status
+    const unsub = onSnapshot(doc(db, 'quizzes', quizId), (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        if (data.status === 'ended') {
+          console.log('[Watchdog] Teacher ended quiz. Auto-submitting...');
+          handleAutoSubmit();
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [quizId, quizActive, handleAutoSubmit]);
 
   // Anti-cheat
   const antiCheat = useAntiCheat(

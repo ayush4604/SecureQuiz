@@ -53,6 +53,7 @@ export function shuffleQuiz(questions) {
       ...q,
       options: shuffledOptions,
       correctAnswer: newCorrectAnswer,
+      originalOptions: q.options, // Keep reference to original order
     };
   });
 }
