@@ -114,33 +114,39 @@ export default function ResultsScreen() {
 
     // --- NATIVE (Android/iOS) DOWNLOAD ---
     try {
+      // Robust import to handle React Native bundler quirks (sometimes wraps in .default)
+      const _fsModule = require('expo-file-system');
+      const FS = _fsModule.default || _fsModule;
+      
       let savedViaSAF = false;
 
       // 1. Android Primary Method: Save directly to Downloads via SAF
       if (Platform.OS === 'android') {
         try {
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(
-              permissions.directoryUri, fileName, 'text/csv'
-            );
-            await FileSystem.writeAsStringAsync(newUri, csv, {
-              encoding: FileSystem.EncodingType.UTF8,
-            });
-            Alert.alert('Success', 'CSV file saved to selected folder.');
-            savedViaSAF = true;
-            return;
+          const SAF = FS.StorageAccessFramework;
+          if (SAF) {
+            const permissions = await SAF.requestDirectoryPermissionsAsync();
+            if (permissions.granted) {
+              const newUri = await SAF.createFileAsync(
+                permissions.directoryUri, fileName, 'text/csv'
+              );
+              await FS.writeAsStringAsync(newUri, csv, {
+                encoding: FS.EncodingType.UTF8,
+              });
+              Alert.alert('Success', 'CSV file saved to selected folder.');
+              savedViaSAF = true;
+              return;
+            }
           }
         } catch (safErr) {
           console.warn('SAF failed:', safErr);
-          // Don't return here; fall through to the Sharing fallback
         }
       }
 
       if (savedViaSAF) return;
 
       // 2. iOS Primary Method / Android Fallback: Share sheet
-      const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+      const baseDir = FS.documentDirectory || FS.cacheDirectory;
       if (!baseDir) {
         Alert.alert(
           'File System Error', 
@@ -167,8 +173,8 @@ export default function ResultsScreen() {
       }
 
       const fileUri = baseDir + fileName;
-      await FileSystem.writeAsStringAsync(fileUri, csv, { 
-        encoding: FileSystem.EncodingType.UTF8 
+      await FS.writeAsStringAsync(fileUri, csv, { 
+        encoding: FS.EncodingType.UTF8 
       });
 
       if (Sharing) {
