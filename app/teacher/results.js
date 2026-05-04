@@ -143,7 +143,27 @@ export default function ResultsScreen() {
       // 2. iOS Primary Method / Android Fallback: Share sheet
       const baseDir = documentDirectory || cacheDirectory;
       if (!baseDir) {
-        Alert.alert('Error', 'File system not available on this device to generate shareable file.');
+        Alert.alert(
+          'File System Error', 
+          'Unable to create a CSV file on this device. Would you like to share the raw data as text instead?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Share Text', 
+              onPress: async () => {
+                try {
+                  const { Share } = require('react-native');
+                  await Share.share({ 
+                    message: csv,
+                    title: 'Quiz Results'
+                  });
+                } catch (e) {
+                  console.warn('Text share failed:', e);
+                }
+              }
+            }
+          ]
+        );
         return;
       }
 
