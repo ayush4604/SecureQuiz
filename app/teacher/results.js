@@ -114,10 +114,36 @@ export default function ResultsScreen() {
 
     // --- NATIVE (Android/iOS) DOWNLOAD ---
     try {
-      // Use cacheDirectory as fallback if documentDirectory is null
+      let savedViaSAF = false;
+
+      // 1. Android Primary Method: Save directly to Downloads via SAF
+      if (Platform.OS === 'android') {
+        try {
+          const SAF = require('expo-file-system').StorageAccessFramework;
+          const permissions = await SAF.requestDirectoryPermissionsAsync();
+          if (permissions.granted) {
+            const newUri = await SAF.createFileAsync(
+              permissions.directoryUri, fileName, 'text/csv'
+            );
+            await writeAsStringAsync(newUri, csv, {
+              encoding: EncodingType.UTF8,
+            });
+            Alert.alert('Success', 'CSV file saved to selected folder.');
+            savedViaSAF = true;
+            return;
+          }
+        } catch (safErr) {
+          console.warn('SAF failed:', safErr);
+          // Don't return here; fall through to the Sharing fallback
+        }
+      }
+
+      if (savedViaSAF) return;
+
+      // 2. iOS Primary Method / Android Fallback: Share sheet
       const baseDir = documentDirectory || cacheDirectory;
       if (!baseDir) {
-        Alert.alert('Error', 'File system not available on this device.');
+        Alert.alert('Error', 'File system not available on this device to generate shareable file.');
         return;
       }
 
@@ -126,7 +152,6 @@ export default function ResultsScreen() {
         encoding: EncodingType.UTF8 
       });
 
-      // Try sharing first
       if (Sharing) {
         const isAvailable = await Sharing.isAvailableAsync();
         if (isAvailable) {
@@ -139,29 +164,7 @@ export default function ResultsScreen() {
         }
       }
 
-      // Fallback: try saving to Downloads via SAF (Android)
-      if (Platform.OS === 'android') {
-        try {
-          const SAF = require('expo-file-system').StorageAccessFramework;
-          const permissions = await SAF.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            // Can't use named imports for SAF, so require it directly here
-            const SAF = require('expo-file-system').StorageAccessFramework;
-            const newUri = await SAF.createFileAsync(
-              permissions.directoryUri, fileName, 'text/csv'
-            );
-            await writeAsStringAsync(newUri, csv, {
-              encoding: EncodingType.UTF8,
-            });
-            Alert.alert('Success', 'CSV file saved to selected folder.');
-            return;
-          }
-        } catch (safErr) {
-          console.warn('SAF fallback failed:', safErr);
-        }
-      }
-
-      Alert.alert('Saved', `CSV saved to: ${fileUri}`);
+      Alert.alert('Saved', `CSV saved to app storage: ${fileUri}`);
     } catch (err) {
       console.error('Native CSV error:', err);
       Alert.alert('Error', 'Failed to create CSV file. Please try again.');
