@@ -12,7 +12,7 @@ import { COLORS, SIZES, FONTS } from '../../utils/theme';
 import { getQuizById, getQuizResults } from '../../services/quizService';
 import { VIOLATION_LABELS } from '../../utils/constants';
 
-import { documentDirectory, cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 export default function ResultsScreen() {
@@ -119,14 +119,13 @@ export default function ResultsScreen() {
       // 1. Android Primary Method: Save directly to Downloads via SAF
       if (Platform.OS === 'android') {
         try {
-          const SAF = require('expo-file-system').StorageAccessFramework;
-          const permissions = await SAF.requestDirectoryPermissionsAsync();
+          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
           if (permissions.granted) {
-            const newUri = await SAF.createFileAsync(
+            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(
               permissions.directoryUri, fileName, 'text/csv'
             );
-            await writeAsStringAsync(newUri, csv, {
-              encoding: EncodingType.UTF8,
+            await FileSystem.writeAsStringAsync(newUri, csv, {
+              encoding: FileSystem.EncodingType.UTF8,
             });
             Alert.alert('Success', 'CSV file saved to selected folder.');
             savedViaSAF = true;
@@ -141,7 +140,7 @@ export default function ResultsScreen() {
       if (savedViaSAF) return;
 
       // 2. iOS Primary Method / Android Fallback: Share sheet
-      const baseDir = documentDirectory || cacheDirectory;
+      const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
       if (!baseDir) {
         Alert.alert(
           'File System Error', 
@@ -168,8 +167,8 @@ export default function ResultsScreen() {
       }
 
       const fileUri = baseDir + fileName;
-      await writeAsStringAsync(fileUri, csv, { 
-        encoding: EncodingType.UTF8 
+      await FileSystem.writeAsStringAsync(fileUri, csv, { 
+        encoding: FileSystem.EncodingType.UTF8 
       });
 
       if (Sharing) {
